@@ -103,6 +103,11 @@ tr:last-child td{border-bottom:0}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;max-width:calc(100% - 32px);z-index:20}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+.dist{display:flex;flex-wrap:wrap;gap:8px;padding:0 18px 12px}
+.dist span{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:13px;color:var(--ink-3)}
+.dist b{color:var(--ink)}
+.tsearch .chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink-3)}
+.tsearch input[type=checkbox]{flex:none;min-width:0;width:auto;padding:0;margin:0}
 </style>
 </head>
 <body>
@@ -138,7 +143,7 @@ let tmr;function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;
 /* ---------- dados ---------- */
 const KEY='indicadores-propostas-v1';
 let D={props:{},itens:{},arquivos:[]};
-let F={de:'',ate:'',vend:'',q:'',sort:{k:'dif',d:-1}};
+let F={de:'',ate:'',vend:'',q:'',sort:{k:'dif',d:-1},qP:'',so:false,sortP:{k:'c',d:-1}};
 function salvar(){try{localStorage.setItem(KEY,JSON.stringify(D));}catch(e){}}
 function carregar(){try{const s=localStorage.getItem(KEY);if(s){const o=JSON.parse(s);if(o&&o.props) D=o;}}catch(e){}}
 
@@ -217,6 +222,28 @@ function corrigidos(I){
   const {k,d}=F.sort;rows.sort((a,b)=>{const x=a[k],y=b[k];return (typeof x==='string'?String(x).localeCompare(y):(x??0)-(y??0))*d;});
   return rows;
 }
+const ehCorr=i=>i.cp!=null&&i.pr!=null&&Math.abs(i.cp-i.pr)>0.0001;
+const COLS_TXT=['env','vend','cli','st','apr'];
+function itensPorProposta(P,I){
+  const m=new Map();
+  for(const i of I){const o=m.get(i.kp)||{t:0,c:0};o.t++;if(ehCorr(i)) o.c++;m.set(i.kp,o);}
+  return P.map(p=>{const o=m.get(p.k)||{t:0,c:0};return {...p,t:o.t,c:o.c,pc:o.t?o.c/o.t*100:0};});
+}
+function propRows(){
+  const {P,I}=filtradas();let rows=itensPorProposta(P,I);
+  if(F.so) rows=rows.filter(r=>r.c>0);
+  if(F.qP){const q=F.qP.toLowerCase();rows=rows.filter(r=>[r.vend,r.cli,r.n,r.apr].join(' ').toLowerCase().includes(q));}
+  const {k,d}=F.sortP;rows.sort((a,b)=>{const x=a[k],y=b[k];return (typeof x==='string'?String(x).localeCompare(y):(x??0)-(y??0))*d;});
+  return rows;
+}
+function tabelaProp(rows){
+  if(!rows.length) return `<div class="empty">${F.qP||F.so?'Nenhuma proposta com esse filtro.':'Nenhuma proposta no período.'}</div>`;
+  const th=(k,l,n)=>`<th class="${n?'n':''}" data-sortp="${k}" aria-sort="${F.sortP.k===k?(F.sortP.d>0?'ascending':'descending'):'none'}">${l}${F.sortP.k===k?(F.sortP.d>0?' ▲':' ▼'):''}</th>`;
+  return `<div class="tbl"><table><thead><tr>${th('env','Enviada')}${th('vend','Vendedor')}${th('cli','Cliente')}${th('t','Itens',1)}${th('c','Corrigidos',1)}${th('pc','% corrigidos',1)}${th('apr','Aprovador')}${th('st','Status')}</tr></thead><tbody>
+  ${rows.map(r=>`<tr><td class="n">${new Date(r.env).toLocaleDateString('pt-BR')}</td><td>${esc(r.vend)}</td><td>${esc(r.cli)} <span style="color:var(--ink-3)">#${esc(r.n)}</span></td>
+    <td class="n">${r.t?nf.format(r.t):'—'}</td><td class="n">${r.t?(r.c?'<b>'+nf.format(r.c)+'</b>':'0'):'—'}</td><td class="n">${r.t?Math.round(r.pc)+'%':'—'}</td>
+    <td>${esc(r.apr)}</td><td><span class="pill ${/aceita/i.test(r.st)?'ok':'warn'}">${esc(r.st)}</span></td></tr>`).join('')}</tbody></table></div>`;
+}
 function tabelaCorr(rows){
   if(!rows.length) return `<div class="empty">${F.q?'Nenhum item corrigido com esse filtro.':'Nenhum item teve o preço corrigido pelo aprovador no período.'}</div>`;
   const th=(k,l,n)=>`<th class="${n?'n':''}" data-sort="${k}" aria-sort="${F.sort.k===k?(F.sort.d>0?'ascending':'descending'):'none'}">${l}${F.sort.k===k?(F.sort.d>0?' ▲':' ▼'):''}</th>`;
@@ -234,7 +261,7 @@ function render(){
     <p>No painel Propostas &amp; Retorno, vá em Aprovar › Resumo e histórico e clique em Baixar Excel. Depois arraste o arquivo para cá ou clique para escolher. Dá para carregar vários de uma vez, um por semana: as propostas repetidas são juntadas.</p></div>`;return;}
   const {P,I}=filtradas(); const vends=[...new Set(Object.values(D.props).map(p=>p.vend))].sort();
   const resp=P.filter(p=>p.th!=null); const tm=resp.length?resp.reduce((s,p)=>s+p.th,0)/resp.length:null;
-  const corr=corrigidos(I); const propsCorr=new Set(I.filter(i=>i.cp!=null&&i.pr!=null&&Math.abs(i.cp-i.pr)>0.0001).map(i=>i.kp)).size;
+  const corr=corrigidos(I); const nCorr=I.filter(ehCorr).length; const propsCorr=new Set(I.filter(i=>i.cp!=null&&i.pr!=null&&Math.abs(i.cp-i.pr)>0.0001).map(i=>i.kp)).size;
   const dias=new Set(P.map(p=>dkey(new Date(p.env)))).size;
   const all=Object.values(D.props).map(p=>p.env).sort();
   app.innerHTML=`
@@ -248,13 +275,18 @@ function render(){
   <section class="kpis" aria-label="Resumo">
     <div class="kpi"><div class="k">Propostas enviadas</div><div class="v">${nf.format(P.length)}</div><div class="s">${dias?'média de '+(P.length/dias).toFixed(1).replace('.',',')+' por dia com envio':''}</div></div>
     <div class="kpi"><div class="k">Vendedores que enviaram</div><div class="v">${new Set(P.map(p=>p.vend)).size}</div><div class="s">${brl(P.reduce((s,p)=>s+p.rs,0))} pedidos</div></div>
-    <div class="kpi"><div class="k">Itens corrigidos pelo aprovador</div><div class="v">${nf.format(corr.length)}</div><div class="s">em ${propsCorr} ${propsCorr===1?'proposta':'propostas'}</div></div>
+    <div class="kpi"><div class="k">Itens corrigidos pelo aprovador</div><div class="v">${nf.format(nCorr)}</div><div class="s">em ${propsCorr} ${propsCorr===1?'proposta':'propostas'}${propsCorr?' · média de '+(nCorr/propsCorr).toFixed(1).replace('.',',')+' por proposta':''}<br>de ${nf.format(I.length)} ${I.length===1?'item enviado':'itens enviados'}${I.length?' ('+Math.round(nCorr/I.length*100)+'%)':''}</div></div>
     <div class="kpi"><div class="k">Tempo médio de resposta</div><div class="v">${fh(tm)}</div><div class="s">${resp.length} respondidas</div></div>
   </section>
   <div class="grid">
     <section class="panel"><div class="ph"><h2>Propostas enviadas por dia</h2><span>passe o mouse na barra para ver o dia</span></div><div class="chart">${graficoDia(P)}</div></section>
     <section class="panel"><div class="ph"><h2>Ranking de vendedores</h2><span>por propostas enviadas</span></div>${ranking(P)}</section>
   </div>
+  <section class="panel"><div class="ph"><h2>Itens por proposta</h2><span>quantos itens cada proposta tinha e quantos o aprovador corrigiu</span></div>
+    <div class="dist">${(()=>{const R=itensPorProposta(P,I).filter(r=>r.t>0);const n=f=>R.filter(f).length;const sem=P.length-R.length;
+      return `<span><b>${n(r=>r.c===0)}</b> sem correção</span><span><b>${n(r=>r.c===1)}</b> com 1 item corrigido</span><span><b>${n(r=>r.c===2)}</b> com 2 itens</span><span><b>${n(r=>r.c>=3)}</b> com 3 ou mais</span>${sem?`<span><b>${sem}</b> sem detalhe de itens</span>`:''}`;})()}</div>
+    <div class="tsearch"><input type="search" id="fQP" placeholder="Buscar vendedor, cliente ou nº da proposta" value="${esc(F.qP)}" aria-label="Buscar nas propostas"><label class="chk"><input type="checkbox" id="fSo" ${F.so?'checked':''}> só propostas com item corrigido</label></div>
+    <div id="tProp">${tabelaProp(propRows())}</div></section>
   <section class="panel"><div class="ph"><h2>Itens corrigidos pelo aprovador</h2><span>preço da contraproposta diferente do pedido · clique no título da coluna para ordenar</span></div>
     <div class="tsearch"><input type="search" id="fQ" placeholder="Buscar produto, vendedor, cliente ou aprovador" value="${esc(F.q)}" aria-label="Buscar nos itens corrigidos"></div>
     <div id="tCorr">${tabelaCorr(corr)}</div></section>`;
@@ -280,13 +312,16 @@ document.addEventListener('click',e=>{
   if(t.closest('#btnBase')){baixarBase();return;}
   if(t.closest('#btnZerar')){if(confirm('Apagar todos os dados carregados neste navegador? Os arquivos Excel não são afetados.')){D={props:{},itens:{},arquivos:[]};salvar();render();}return;}
   if(t.closest('#btnLimpa')){F.de='';F.ate='';F.vend='';render();return;}
+  const thp=t.closest('th[data-sortp]');if(thp){const k=thp.dataset.sortp;F.sortP=F.sortP.k===k?{k,d:-F.sortP.d}:{k,d:COLS_TXT.includes(k)?1:-1};$('#tProp').innerHTML=tabelaProp(propRows());return;}
   const th=t.closest('th[data-sort]');if(th){const k=th.dataset.sort;F.sort=F.sort.k===k?{k,d:-F.sort.d}:{k,d:typeof ({env:1,vend:1,cli:1,prod:1,apr:1,st:1})[k]==='number'?1:-1};$('#tCorr').innerHTML=tabelaCorr(corrigidos(filtradas().I));}
 });
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.id==='drop'){e.preventDefault();$('#arq').click();}});
 document.addEventListener('change',e=>{const id=e.target.id;
   if(id==='arq'){lerArquivos([...e.target.files]);e.target.value='';}
+  if(id==='fSo'){F.so=e.target.checked;$('#tProp').innerHTML=tabelaProp(propRows());}
   if(id==='fDe'){F.de=e.target.value;render();} if(id==='fAte'){F.ate=e.target.value;render();} if(id==='fVend'){F.vend=e.target.value;render();}});
-document.addEventListener('input',e=>{if(e.target.id==='fQ'){F.q=e.target.value;$('#tCorr').innerHTML=tabelaCorr(corrigidos(filtradas().I));}});
+document.addEventListener('input',e=>{if(e.target.id==='fQP'){F.qP=e.target.value;$('#tProp').innerHTML=tabelaProp(propRows());}
+  if(e.target.id==='fQ'){F.q=e.target.value;$('#tCorr').innerHTML=tabelaCorr(corrigidos(filtradas().I));}});
 ['dragenter','dragover'].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();const d=$('#drop');if(d) d.classList.add('on');}));
 ['dragleave','drop'].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();const d=$('#drop');if(d) d.classList.remove('on');}));
 document.addEventListener('drop',e=>{const fs=[...(e.dataTransfer&&e.dataTransfer.files||[])].filter(f=>/\.xlsx?$/i.test(f.name));if(fs.length) lerArquivos(fs);});
